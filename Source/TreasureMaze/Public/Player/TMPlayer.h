@@ -6,6 +6,7 @@
 #include "GameFramework/Pawn.h"
 #include "TMPlayer.generated.h"
 
+class ATMCharacter;
 struct FInputActionValue;
 
 class UFloatingPawnMovement;
@@ -49,14 +50,21 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings|TM Player")
 	TObjectPtr<UCurveFloat> ZoomCurve;
 
-	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Settings|TM Player")
-	TObjectPtr<ACharacter> ControlledCharacter;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State|TM Player", Transient)
+	TObjectPtr<ATMCharacter> ControlledCharacter;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State|TM Player", Transient)
+	TObjectPtr<ATMCharacter> TrackingCharacter;
 
 public:
 	
 	ATMPlayer();
 	
 	virtual void Tick(float DeltaTime) override;
+
+	virtual void Restart() override;
+
+	void SetCharacter(ATMCharacter* InCharacter);
 	
 protected:
 	
@@ -81,7 +89,7 @@ private:
 
 	float ZoomDirection{0.f};
 	float ZoomTargetValue{50.f};
-	float ZoomValue{0.f};
+	float ZoomValue{50.f};
 	
 	void InputDragMoveStarted();
 	void InputDragMoveTriggered();
@@ -89,5 +97,9 @@ private:
 	void InputMoveCharacter(const FInputActionValue& ActionValue);
 
 	void RefreshZoom(float DeltaTime);
+
+	void RefreshTrackingMove(float DeltaTime);
+
+	void SetZoom(float Value) const;
 	
 };

@@ -5,14 +5,15 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Utility/TMUtility.h"
 
-// Sets default values
 ATMMaze::ATMMaze() : MaxWidth(5), MaxHeight(5), TileSize(100.0f), VisitedCellCount(0)
 {
- 	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+
+	VisualRoot = CreateDefaultSubobject<USceneComponent>(FName{TEXTVIEW("VisualRoot")});
+	RootComponent = VisualRoot;
 
 	ISMTileComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("ISM Tiles"));
-	ISMTileComponent->SetupAttachment(RootComponent);
+	ISMTileComponent->SetupAttachment(VisualRoot);
 	
 	ISMWallComponent = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("ISM Walls"));
 	ISMWallComponent->SetupAttachment(ISMTileComponent);
@@ -22,6 +23,8 @@ ATMMaze::ATMMaze() : MaxWidth(5), MaxHeight(5), TileSize(100.0f), VisitedCellCou
 void ATMMaze::BeginPlay()
 {
 	Super::BeginPlay();
+
+	RefreshMazeTiles();
 }
 
 // Called every frame
@@ -31,6 +34,25 @@ void ATMMaze::Tick(float DeltaTime)
 
 #if WITH_EDITORONLY_DATA && ENABLE_DRAW_DEBUG
 	const bool bShowDebug = UTMUtility::ShouldDisplayDebugForActor(this, FName{TEXTVIEW("TM.Maze")});
+
+	if (bShowDebug)
+	{
+		for (int x = 0; x < MaxWidth; x++)
+		{
+			for (int y = 0; y < MaxHeight; y++)
+			{
+				const int32 Index = y * MaxWidth + x;
+				
+				if (!Maze.IsValidIndex(Index)) break;
+				if (!MazeTiles.IsValidIndex(Index)) break;
+			
+				DrawDebugSphere(GetWorld(), MazeTiles[Index], 50.f, 10, FColor::Blue);
+
+				FString PathString = UTMUtility::IntToBinaryString(Maze[Index]);
+				DrawDebugString(GetWorld(), MazeTiles[Index], PathString);
+			}
+		}
+	}
 #endif
 }
 
@@ -136,6 +158,7 @@ void ATMMaze::GenerateMaze()
 		}
 	}
 
+	RefreshMazeTiles();
 }
 
 void ATMMaze::ClearStack()
@@ -231,4 +254,74 @@ void ATMMaze::RecursiveBackTracker()
 			HistoryStack.pop();
 		}
 	}
+}
+
+void ATMMaze::RefreshMazeTiles()
+{
+	MazeTiles.Empty();
+	
+	MazeTiles.SetNumZeroed(MaxWidth * MaxHeight, true);
+
+	for (int x = 0; x < MaxWidth; x++)
+	{
+		for (int y = 0; y < MaxHeight; y++)
+		{
+			const FVector TileCenterPosition = FVector(y * TileSize + TileSize / 2.f, x * TileSize + TileSize / 2.f, 0.f);
+			MazeTiles[y * MaxWidth + x] = RootComponent->GetComponentTransform().TransformPosition(TileCenterPosition);
+		}
+	}
+}
+
+const FVector& ATMMaze::GetTileLocationFromWidthHeight(const int32 InWidth, const int32 InHeight) const
+{
+	const int TargetIndex = InHeight * MaxWidth + InWidth;
+
+	if (MazeTiles.IsValidIndex(TargetIndex)) return MazeTiles[TargetIndex];
+
+	return FVector::ZeroVector;
+}
+
+const FVector& ATMMaze::GetTileLocationFromIndex(const int32 InIndex) const
+{
+	if (MazeTiles.IsValidIndex(InIndex)) return MazeTiles[InIndex];
+
+	return FVector::ZeroVector;
+}
+
+int32 ATMMaze::GetTileIndex(const int32 InWidth, const int32 InHeight) const
+{
+	const int32 TargetIndex = InHeight * MaxWidth + InWidth;
+
+	if (MazeTiles.IsValidIndex(TargetIndex)) return TargetIndex;
+
+	return -1;
+}
+
+bool ATMMaze::GetTileWidthHeight(const int32 InIndex, int32& OutWidth, int32& OutHeight) const
+{
+	if (!MazeTiles.IsValidIndex(InIndex)) return false;
+
+	OutWidth = InIndex % MaxWidth;
+	OutHeight = InIndex / MaxWidth;
+
+	return true;
+}
+
+FIntVector2 ATMMaze::GetTileWidthHeight(const int32 InIndex) const
+{
+	if (!MazeTiles.IsValidIndex(InIndex)) return FIntVector2{};
+	
+	return FIntVector2{InIndex % MaxWidth, InIndex / MaxWidth};
+}
+
+bool ATMMaze::IsActionValid(const int32 TargetTile, const ETMAction TargetAction) const
+{
+	if (!Maze.IsValidIndex(TargetTile)) return false;
+
+	if (TargetAction == ETMAction::Up && (Maze[TargetTile] & CELL_PATH_N) == CELL_PATH_N) return true;
+	if (TargetAction == ETMAction::Down && (Maze[TargetTile] & CELL_PATH_S) == CELL_PATH_S) return true;
+	if (TargetAction == ETMAction::Left && (Maze[TargetTile] & CELL_PATH_W) == CELL_PATH_W) return true;
+	if (TargetAction == ETMAction::Right && (Maze[TargetTile] & CELL_PATH_E) == CELL_PATH_E) return true;
+
+	return false;
 }

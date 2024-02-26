@@ -5,11 +5,13 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Camera/CameraComponent.h"
-#include "GameFramework/Character.h"
+#include "Character/TMCharacter.h"
 #include "GameFramework/FloatingPawnMovement.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Player/TMPlayerController.h"
+#include "UI/TMHUD.h"
 
 ATMPlayer::ATMPlayer()
 {
@@ -55,11 +57,34 @@ void ATMPlayer::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 
 	RefreshZoom(DeltaTime);
+
+	RefreshTrackingMove(DeltaTime);
+}
+
+void ATMPlayer::Restart()
+{
+	Super::Restart();
+
+	if (const auto* PC = GetController<ATMPlayerController>())
+	{
+		if (ATMHUD* HUD = PC->GetHUD<ATMHUD>())
+		{
+			HUD->CreateGameplayWidget();
+		}
+	}
+}
+
+void ATMPlayer::SetCharacter(ATMCharacter* InCharacter)
+{
+	ControlledCharacter = InCharacter;
+	// TrackingCharacter = InCharacter;
 }
 
 void ATMPlayer::BeginPlay()
 {
 	Super::BeginPlay();
+
+	SetZoom(0.5f);
 }
 
 void ATMPlayer::NotifyControllerChanged()
@@ -156,7 +181,7 @@ void ATMPlayer::InputZoom(const FInputActionValue& ActionValue)
 {
 	ZoomDirection = ActionValue.Get<float>();
 
-	ZoomTargetValue = FMath::Clamp(ZoomDirection * 100.f + ZoomValue, 0.f, 100.f);
+	ZoomTargetValue = FMath::Clamp(ZoomDirection * 5.f + ZoomTargetValue, 0.f, 100.f);
 }
 
 void ATMPlayer::InputMoveCharacter(const FInputActionValue& ActionValue)
@@ -175,12 +200,48 @@ void ATMPlayer::RefreshZoom(const float DeltaTime)
 {
 	if (!IsValid(ZoomCurve)) return;
 
-	ZoomValue = UKismetMathLibrary::FInterpTo(ZoomValue, ZoomTargetValue, DeltaTime, 10.f);
+	ZoomValue = UKismetMathLibrary::FInterpTo(ZoomValue, ZoomTargetValue, DeltaTime, 8.f);
 
 	if (FMath::IsNearlyEqual(ZoomValue, ZoomTargetValue, 0.1f)) return;
 
 	const float Value = ZoomCurve->GetFloatValue(ZoomValue / 100.f);
 
+	SetZoom(Value);
+}
+
+void ATMPlayer::RefreshTrackingMove(const float DeltaTime)
+{
+	if (!IsValid(TrackingCharacter)) return;
+	
+	static constexpr float MovementSpeed{1000.f};
+	static const FVector2D ScreenBoundsOffset{50.f, 50.f};
+
+	// Get viewport size
+	FVector2D ViewportSize;
+	GetWorld()->GetGameViewport()->GetViewportSize(ViewportSize);
+
+	// Project actor's location to screen space
+	const auto ActorWorldPos = TrackingCharacter->GetActorLocation();
+	FVector2D ActorScreenPos;
+	if (UGameplayStatics::ProjectWorldToScreen(GetWorld()->GetFirstPlayerController(), ActorWorldPos, ActorScreenPos))
+	{
+		// Check if actor is within screen bounds
+		if (ActorScreenPos.X < ScreenBoundsOffset.X ||
+			ActorScreenPos.Y < ScreenBoundsOffset.Y ||
+			ActorScreenPos.X > ViewportSize.X - ScreenBoundsOffset.X ||
+			ActorScreenPos.Y > ViewportSize.Y - ScreenBoundsOffset.Y)
+		{
+			// Move towards the new destination
+			const FVector Direction = (ActorWorldPos - GetActorLocation()).GetSafeNormal();
+			const FVector NewLocation = GetActorLocation() + Direction * MovementSpeed * DeltaTime;
+			
+			SetActorLocation(NewLocation);
+		}
+	}
+}
+
+void ATMPlayer::SetZoom(const float Value) const
+{
 	SpringArm->TargetArmLength = FMath::Lerp(800.f, 40000.f, Value);
 	SpringArm->SetRelativeRotation({FMath::Lerp(-70.f, -90.f, Value), 0.f, 0.f});
 
